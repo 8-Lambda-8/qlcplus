@@ -52,6 +52,7 @@
 #include "videoprovider.h"
 #include "importmanager.h"
 #include "contextmanager.h"
+#include "livecontrolmanager.h"
 #include "virtualconsole.h"
 #include "fixturebrowser.h"
 #include "fixturemanager.h"
@@ -197,6 +198,8 @@ void App::startup()
     m_functionManager = new FunctionManager(this, m_doc);
     m_simpleDesk = new SimpleDesk(this, m_doc, m_functionManager);
     m_contextManager = new ContextManager(this, m_doc, m_fixtureManager, m_functionManager);
+    m_liveControlManager = new LiveControlManager(m_doc, m_contextManager, this);
+    rootContext()->setContextProperty("liveControlManager", m_liveControlManager);
     m_paletteManager = new PaletteManager(this, m_doc, m_contextManager);
 
     m_virtualConsole = new VirtualConsole(this, m_doc, m_contextManager);
@@ -237,6 +240,7 @@ void App::startup()
 
     // register an uncreatable type just to use the enums in QML
     qmlRegisterUncreatableType<ContextManager>("org.qlcplus.classes", 1, 0, "ContextManager", "Can't create a ContextManager!");
+    qmlRegisterUncreatableType<LiveControlManager>("org.qlcplus.classes", 1, 0, "LiveControlManager", "Can't create a LiveControlManager!");
     qmlRegisterUncreatableType<ShowManager>("org.qlcplus.classes", 1, 0, "ShowManager", "Can't create a ShowManager!");
     qmlRegisterUncreatableType<NetworkManager>("org.qlcplus.classes", 1, 0, "NetworkManager", "Can't create a NetworkManager!");
     qmlRegisterUncreatableType<SimpleDesk>("org.qlcplus.classes", 1, 0, "SimpleDesk", "Can't create a SimpleDesk!");
@@ -712,6 +716,7 @@ void App::clearDocument()
     }
 
     m_contextManager->resetFixtureSelection();
+    m_liveControlManager->reset();
     //m_simpleDesk->resetContents(); // TODO
     m_showManager->resetContents();
     m_virtualConsole->resetContents();
@@ -1181,6 +1186,10 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         {
             m_virtualConsole->loadXML(doc);
         }
+        else if (doc.name() == KXMLQLCLiveControls)
+        {
+            m_liveControlManager->loadXML(doc);
+        }
 #if 0
         else if (doc.name() == KXMLQLCSimpleDesk)
         {
@@ -1260,6 +1269,9 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
 
     /* Write engine components to the XML document */
     m_doc->saveXML(&doc);
+
+    /* Write semantic live-controller mappings */
+    m_liveControlManager->saveXML(&doc);
 
     /* Write virtual console to the XML document */
     m_virtualConsole->saveXML(&doc);

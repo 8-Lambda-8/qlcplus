@@ -129,6 +129,24 @@ SidePanel
 
             IconButton
             {
+                id: liveMidiEditor
+                width: iconSize
+                height: iconSize
+                imgSource: "qrc:/inputoutput.svg"
+                tooltip: qsTr("Live MIDI mappings")
+                ButtonGroup.group: fxManagerGroup
+                autoExclusive: false
+                onClicked:
+                {
+                    checked = !checked
+                    if (checked)
+                        loaderSource = "qrc:/LiveControlMappings.qml"
+                    animatePanel(checked)
+                }
+            }
+
+            IconButton
+            {
                 id: intToolButton
                 objectName: "capIntensity"
                 width: iconSize

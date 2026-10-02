@@ -43,6 +43,7 @@ set(SRC_FILES
     inputoutputmanager.cpp inputoutputmanager.h
     inputprofileeditor.cpp inputprofileeditor.h
     listmodel.cpp listmodel.h
+    livecontrolmanager.cpp livecontrolmanager.h
     main.cpp
     mainview2d.cpp mainview2d.h
     mainview3d.cpp mainview3d.h

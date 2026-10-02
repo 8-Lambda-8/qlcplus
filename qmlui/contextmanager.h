@@ -309,6 +309,13 @@ public:
 
     Q_INVOKABLE void highlightFixtureSelection();
 
+    /** Apply/query a normalized semantic control used by live MIDI mappings. */
+    Q_INVOKABLE void applyLiveControl(const QString &target, int value, bool relative = false,
+                                      const QVariantMap &preset = QVariantMap());
+    Q_INVOKABLE qreal liveControlValue(const QString &target) const;
+    Q_INVOKABLE bool liveControlSupported(const QString &target) const;
+    Q_INVOKABLE QVariantList liveControlPresets() const;
+
     void setChannelValues(QList<SceneValue> values);
 
 protected slots:

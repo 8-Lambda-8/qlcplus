@@ -21,6 +21,8 @@
 #include <QQuickItem>
 #include <QDebug>
 #include <QtMath>
+#include <QSet>
+#include <QJsonDocument>
 
 #include "contextmanager.h"
 #include "monitorproperties.h"
@@ -1764,6 +1766,274 @@ void ContextManager::highlightFixtureSelection()
                     break;
                 }
             }
+        }
+    }
+}
+
+qreal ContextManager::liveControlValue(const QString &target) const
+{
+    int type = -1;
+    if (target == QStringLiteral("intensity")) type = QLCChannel::NoColour;
+    else if (target == QStringLiteral("red")) type = QLCChannel::Red;
+    else if (target == QStringLiteral("green")) type = QLCChannel::Green;
+    else if (target == QStringLiteral("blue")) type = QLCChannel::Blue;
+    else if (target == QStringLiteral("white")) type = QLCChannel::White;
+    else if (target == QStringLiteral("amber")) type = QLCChannel::Amber;
+    else if (target == QStringLiteral("uv")) type = QLCChannel::UV;
+    else if (target == QStringLiteral("pan")) type = QLCChannel::Pan;
+    else if (target == QStringLiteral("tilt")) type = QLCChannel::Tilt;
+    else if (target == QStringLiteral("zoom")) type = QLCChannel::Beam;
+
+    if (type >= 0)
+    {
+        qreal result = -2;
+        QSet<quint64> channels;
+        for (const SceneValue &sv : m_channelsMap.values(type))
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+            const quint64 key = (quint64(sv.fxi) << 32) | sv.channel;
+            if (!channel || channel->controlByte() == QLCChannel::LSB || channels.contains(key))
+                continue;
+            channels.insert(key);
+            qreal current = fixture->channelValueAt(sv.channel);
+            if (target == QStringLiteral("zoom") && channel->preset() == QLCChannel::BeamZoomBigSmall)
+                current = 255.0 - current;
+            if (result != -2 && qRound(result) != qRound(current))
+                return -1;
+            result = current;
+        }
+        return result == -2 ? -1 : result;
+    }
+
+    if (target == QStringLiteral("hue") || target == QStringLiteral("saturation")
+            || target == QStringLiteral("color-value"))
+    {
+        QColor common;
+        bool first = true;
+        for (quint32 itemID : m_selectedFixtures)
+        {
+            Fixture *fixture = m_doc->fixture(FixtureUtils::itemFixtureID(itemID));
+            if (!fixture)
+                continue;
+            QColor color = FixtureUtils::headColor(fixture, FixtureUtils::itemHeadIndex(itemID));
+            if (!color.isValid())
+                continue;
+            if (!first && color != common)
+                return -1;
+            common = color;
+            first = false;
+        }
+        if (first)
+            return -1;
+        if (target == QStringLiteral("hue"))
+            return common.hsvHue() < 0 ? 0 : common.hsvHueF() * 255.0;
+        if (target == QStringLiteral("saturation"))
+            return common.hsvSaturationF() * 255.0;
+        return common.valueF() * 255.0;
+    }
+    return -1;
+}
+
+bool ContextManager::liveControlSupported(const QString &target) const
+{
+    if (target == QStringLiteral("intensity")) return m_channelsMap.contains(QLCChannel::NoColour);
+    if (target == QStringLiteral("red")) return m_channelsMap.contains(QLCChannel::Red);
+    if (target == QStringLiteral("green")) return m_channelsMap.contains(QLCChannel::Green);
+    if (target == QStringLiteral("blue")) return m_channelsMap.contains(QLCChannel::Blue);
+    if (target == QStringLiteral("white")) return m_channelsMap.contains(QLCChannel::White);
+    if (target == QStringLiteral("amber")) return m_channelsMap.contains(QLCChannel::Amber);
+    if (target == QStringLiteral("uv")) return m_channelsMap.contains(QLCChannel::UV);
+    if (target == QStringLiteral("pan")) return m_channelsMap.contains(QLCChannel::Pan);
+    if (target == QStringLiteral("tilt")) return m_channelsMap.contains(QLCChannel::Tilt);
+    if (target == QStringLiteral("zoom")) return m_channelsMap.contains(QLCChannel::Beam);
+    if (target == QStringLiteral("strobe")) return m_channelsMap.contains(QLCChannel::Shutter);
+    if (target == QStringLiteral("hue") || target == QStringLiteral("saturation")
+            || target == QStringLiteral("color-value"))
+        return m_channelsMap.contains(QLCChannel::Red) || m_channelsMap.contains(QLCChannel::Cyan);
+    if (target == QStringLiteral("position-center"))
+        return m_channelsMap.contains(QLCChannel::Pan) || m_channelsMap.contains(QLCChannel::Tilt);
+    if (target == QStringLiteral("highlight")) return !m_selectedFixtures.isEmpty();
+    return false;
+}
+
+QVariantList ContextManager::liveControlPresets() const
+{
+    QVariantList result;
+    QSet<QString> seen;
+    const int groups[] = { QLCChannel::Shutter, QLCChannel::Colour, QLCChannel::Gobo };
+    for (int group : groups)
+    {
+        for (const SceneValue &sv : m_channelsMap.values(group))
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+            if (!channel)
+                continue;
+            for (QLCCapability *capability : channel->capabilities())
+            {
+                QVariantMap item;
+                item["group"] = group;
+                item["preset"] = capability->presetInt();
+                item["name"] = capability->name();
+                item["resources"] = capability->resources().isEmpty() ? QString() : QString::fromUtf8(
+                            QJsonDocument::fromVariant(capability->resources()).toJson(QJsonDocument::Compact));
+                const QString key = QStringLiteral("%1|%2|%3|%4")
+                        .arg(group).arg(capability->presetInt())
+                        .arg(item["resources"].toString(), capability->name().toCaseFolded());
+                if (!seen.contains(key))
+                {
+                    seen.insert(key);
+                    result.append(item);
+                }
+            }
+        }
+    }
+    return result;
+}
+
+void ContextManager::applyLiveControl(const QString &target, int value, bool relative,
+                                      const QVariantMap &preset)
+{
+    Q_UNUSED(relative)
+    if (m_selectedFixtures.isEmpty())
+        return;
+    value = qBound(0, value, 255);
+
+    auto outputValues = [this](const QList<SceneValue> &values)
+    {
+        for (const SceneValue &sv : values)
+        {
+            if (m_editingEnabled == false || m_functionManager->acceptsSceneValues() == false)
+                setDumpValue(sv.fxi, sv.channel, sv.value);
+            else
+                m_functionManager->setChannelValue(sv.fxi, sv.channel, sv.value);
+        }
+    };
+
+    if (target == QStringLiteral("intensity")) { setChannelValueByType(QLCChannel::NoColour, value); return; }
+    if (target == QStringLiteral("red")) { setChannelValueByType(QLCChannel::Red, value); return; }
+    if (target == QStringLiteral("green")) { setChannelValueByType(QLCChannel::Green, value); return; }
+    if (target == QStringLiteral("blue")) { setChannelValueByType(QLCChannel::Blue, value); return; }
+    if (target == QStringLiteral("white")) { setChannelValueByType(QLCChannel::White, value); return; }
+    if (target == QStringLiteral("amber")) { setChannelValueByType(QLCChannel::Amber, value); return; }
+    if (target == QStringLiteral("uv")) { setChannelValueByType(QLCChannel::UV, value); return; }
+    if (target == QStringLiteral("position-center")) { setPositionCenter(); return; }
+    if (target == QStringLiteral("highlight")) { highlightFixtureSelection(); return; }
+
+    if (target == QStringLiteral("hue") || target == QStringLiteral("saturation")
+            || target == QStringLiteral("color-value"))
+    {
+        QColor color = Qt::white;
+        if (!m_selectedFixtures.isEmpty())
+        {
+            const quint32 itemID = m_selectedFixtures.first();
+            Fixture *fixture = m_doc->fixture(FixtureUtils::itemFixtureID(itemID));
+            if (fixture)
+                color = FixtureUtils::headColor(fixture, FixtureUtils::itemHeadIndex(itemID));
+        }
+        int hue = color.hsvHue() < 0 ? 0 : color.hsvHue();
+        int saturation = color.hsvSaturation();
+        int brightness = color.value();
+        if (target == QStringLiteral("hue")) hue = qRound(value * 359.0 / 255.0);
+        else if (target == QStringLiteral("saturation")) saturation = value;
+        else brightness = value;
+        const QColor rgb = QColor::fromHsv(hue, saturation, brightness);
+        QColor wauv(0, 0, 0);
+        if (!m_selectedFixtures.isEmpty())
+        {
+            const quint32 itemID = m_selectedFixtures.first();
+            Fixture *fixture = m_doc->fixture(FixtureUtils::itemFixtureID(itemID));
+            const int head = FixtureUtils::itemHeadIndex(itemID);
+            if (fixture)
+            {
+                const quint32 white = fixture->channelNumber(QLCChannel::White, QLCChannel::MSB, head);
+                const quint32 amber = fixture->channelNumber(QLCChannel::Amber, QLCChannel::MSB, head);
+                const quint32 uv = fixture->channelNumber(QLCChannel::UV, QLCChannel::MSB, head);
+                if (white != QLCChannel::invalid()) wauv.setRed(fixture->channelValueAt(white));
+                if (amber != QLCChannel::invalid()) wauv.setGreen(fixture->channelValueAt(amber));
+                if (uv != QLCChannel::invalid()) wauv.setBlue(fixture->channelValueAt(uv));
+            }
+        }
+        setColorValue(rgb, wauv);
+        return;
+    }
+
+    if (target == QStringLiteral("pan") || target == QStringLiteral("tilt"))
+    {
+        const int type = target == QStringLiteral("pan") ? QLCChannel::Pan : QLCChannel::Tilt;
+        // Setting coarse and fine bytes to the same normalized value spans
+        // each head's complete physical range (value * 257 for 16-bit heads).
+        setChannelValueByType(type, value);
+        return;
+    }
+
+    if (target == QStringLiteral("zoom"))
+    {
+        for (const SceneValue &sv : m_channelsMap.values(QLCChannel::Beam))
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+            if (!channel) continue;
+            const int mapped = channel->preset() == QLCChannel::BeamZoomBigSmall ? 255 - value : value;
+            outputValues({ SceneValue(sv.fxi, sv.channel, uchar(mapped)) });
+        }
+        return;
+    }
+
+    if (target == QStringLiteral("strobe"))
+    {
+        for (const SceneValue &sv : m_channelsMap.values(QLCChannel::Shutter))
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+            if (!channel) continue;
+            QLCCapability *chosen = nullptr;
+            for (QLCCapability *cap : channel->capabilities())
+            {
+                if (value == 0 && cap->preset() == QLCCapability::ShutterOpen) { chosen = cap; break; }
+                if (value > 0 && (cap->preset() == QLCCapability::StrobeSlowToFast
+                        || cap->preset() == QLCCapability::StrobeFastToSlow
+                        || cap->preset() == QLCCapability::StrobeFreqRange)) { chosen = cap; break; }
+            }
+            if (!chosen) continue;
+            int mapped = chosen->middle();
+            if (value > 0)
+            {
+                mapped = chosen->min() + qRound((chosen->max() - chosen->min()) * value / 255.0);
+                if (chosen->preset() == QLCCapability::StrobeFastToSlow)
+                    mapped = chosen->max() - qRound((chosen->max() - chosen->min()) * value / 255.0);
+            }
+            outputValues({ SceneValue(sv.fxi, sv.channel, uchar(mapped)) });
+        }
+        return;
+    }
+
+    if (target == QStringLiteral("preset"))
+    {
+        const int group = preset.value("group").toInt();
+        const int presetType = preset.value("preset").toInt();
+        const QString resources = preset.value("resources").toString();
+        const QString name = preset.value("name").toString();
+        for (const SceneValue &sv : m_channelsMap.values(group))
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+            if (!channel) continue;
+            QLCCapability *fallback = nullptr;
+            QLCCapability *chosen = nullptr;
+            for (QLCCapability *cap : channel->capabilities())
+            {
+                if (cap->presetInt() != presetType) continue;
+                if (!name.isEmpty() && cap->name().compare(name, Qt::CaseInsensitive) == 0)
+                    fallback = cap;
+                const QString candidateResources = cap->resources().isEmpty() ? QString() : QString::fromUtf8(
+                            QJsonDocument::fromVariant(cap->resources()).toJson(QJsonDocument::Compact));
+                if (!resources.isEmpty() && candidateResources == resources) { chosen = cap; break; }
+            }
+            if (!chosen) chosen = fallback;
+            if (chosen)
+                outputValues({ SceneValue(sv.fxi, sv.channel, chosen->middle()) });
         }
     }
 }

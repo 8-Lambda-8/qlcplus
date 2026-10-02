@@ -35,6 +35,7 @@ class FixtureBrowser;
 class FixtureManager;
 class PaletteManager;
 class ContextManager;
+class LiveControlManager;
 class VirtualConsole;
 class FunctionManager;
 class QXmlStreamReader;
@@ -248,6 +249,7 @@ private:
     FixtureGroupEditor *m_fixtureGroupEditor;
     PaletteManager *m_paletteManager;
     ContextManager *m_contextManager;
+    LiveControlManager *m_liveControlManager;
     FunctionManager *m_functionManager;
     InputOutputManager *m_ioManager;
     VirtualConsole *m_virtualConsole;
