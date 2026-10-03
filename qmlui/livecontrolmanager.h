@@ -57,6 +57,8 @@ signals:
     void presetTargetsChanged();
     void learningChanged();
     void inputUniversesChanged();
+    /** Emitted after a mapped input has changed the selected fixtures. */
+    void controlValueChanged(const QString &target, int value, const QVariantMap &preset);
 
 private slots:
     void slotInputValueChanged(quint32 universe, quint32 channel, uchar value, const QString &key);

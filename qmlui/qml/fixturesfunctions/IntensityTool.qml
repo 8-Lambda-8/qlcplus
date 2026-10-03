@@ -39,6 +39,7 @@ Rectangle
     property alias currentValue: spinBox.value
     property real previousValue: 0
     property bool relativeValue: false
+    property bool isUpdating: false
 
     signal valueChanged(int value)
     signal close()
@@ -58,9 +59,23 @@ Rectangle
         }
     }
 
+    // Refresh the displayed value without sending it back to the fixtures.
+    function setExternalValue(value)
+    {
+        isUpdating = true
+        setValue(value)
+        isUpdating = false
+    }
+
     onCurrentValueChanged:
     {
         paletteBox.updateValue(dmxValues ? currentValue : currentValue * 2.55)
+
+        if (isUpdating)
+        {
+            previousValue = currentValue
+            return
+        }
 
         if (paletteBox.isEditing || paletteBox.checked)
         {
@@ -262,4 +277,3 @@ Rectangle
         }
     } // Column
 }
-

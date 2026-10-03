@@ -53,6 +53,7 @@ Rectangle
 
     function updatePanTiltDegrees()
     {
+        isLoading = true
         previousPanDegrees = 0
         previousTiltDegrees = 0
 
@@ -79,6 +80,8 @@ Rectangle
             relativeTiltValue = false
             tiltDegrees = tilt * tiltPow
         }
+        gCanvas.requestPaint()
+        isLoading = false
     }
 
     onVisibleChanged:

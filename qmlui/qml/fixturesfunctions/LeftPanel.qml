@@ -37,6 +37,41 @@ SidePanel
         item.height = Qt.binding(function() { return leftSidePanel.height })
     }
 
+    Connections
+    {
+        target: liveControlManager
+
+        function onControlValueChanged(target, value, preset)
+        {
+            if ((target === "intensity" || target === "highlight") && intTool.visible)
+                intTool.setExternalValue(contextManager.getCurrentValue(QLCChannel.Intensity, false))
+            if ((target === "pan" || target === "tilt" || target === "position-center")
+                    && posTool.visible)
+                posTool.updatePanTiltDegrees()
+            if (target === "zoom" && beamTool.visible)
+                beamTool.updateCurrentDegrees()
+            if ((target === "hue" || target === "saturation" || target === "color-value"
+                    || target === "red" || target === "green" || target === "blue"
+                    || target === "white" || target === "amber" || target === "uv"
+                    || target === "highlight") && colTool.visible)
+                contextManager.getCurrentColors(colTool)
+
+            // Preset panels contain one page per selected fixture/channel. Reloading
+            // keeps those pages in sync when a mapped shutter, wheel, or gobo action fires.
+            if (target === "strobe" && shutterTool.visible)
+                shutterTool.updatePresets(fixtureManager.shutterChannels)
+            else if (target === "preset")
+            {
+                if (preset.group === QLCChannel.Shutter && shutterTool.visible)
+                    shutterTool.updatePresets(fixtureManager.shutterChannels)
+                else if (preset.group === QLCChannel.Colour && cWheelTool.visible)
+                    cWheelTool.updatePresets(fixtureManager.colorWheelChannels)
+                else if (preset.group === QLCChannel.Gobo && gobosTool.visible)
+                    gobosTool.updatePresets(fixtureManager.goboChannels)
+            }
+        }
+    }
+
     Rectangle
     {
         id: sideBar

@@ -310,6 +310,7 @@ void LiveControlManager::dispatch(Mapping &mapping, uchar value, bool relative)
         if (!pressed || wasPressed)
             return;
         m_contextManager->applyLiveControl(mapping.target, value, false, mapping.preset);
+        emit controlValueChanged(mapping.target, value, mapping.preset);
         return;
     }
 
@@ -338,6 +339,7 @@ void LiveControlManager::dispatch(Mapping &mapping, uchar value, bool relative)
     mapping.hasValue = true;
     mapping.lastValue = value;
     m_contextManager->applyLiveControl(mapping.target, value, relative, mapping.preset);
+    emit controlValueChanged(mapping.target, value, mapping.preset);
 }
 
 void LiveControlManager::slotSelectionChanged()

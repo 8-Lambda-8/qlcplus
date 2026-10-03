@@ -50,25 +50,30 @@ Rectangle
     onVisibleChanged:
     {
         if (visible)
-        {
-            previousDegrees = 0
-            var val = contextManager.getCurrentValue(QLCChannel.Beam, true)
-            isUpdating = true
+            updateCurrentDegrees()
+    }
 
-            if (val === -1)
-            {
-                relativeValue = true
-                currentDegrees = 0
-            }
-            else
-            {
-                relativeValue = false
-                currentDegrees = val
-            }
-            beamSpinBox.value = currentDegrees * Math.pow(10, beamSpinBox.decimals)
-            calculateProjection()
-            isUpdating = false
+    // Refresh the displayed zoom without sending it back to the fixtures.
+    function updateCurrentDegrees()
+    {
+        previousDegrees = 0
+        var val = contextManager.getCurrentValue(QLCChannel.Beam, true)
+        isUpdating = true
+
+        if (val === -1)
+        {
+            relativeValue = true
+            currentDegrees = 0
         }
+        else
+        {
+            relativeValue = false
+            currentDegrees = val
+        }
+        beamSpinBox.value = currentDegrees * Math.pow(10, beamSpinBox.decimals)
+        calculateProjection()
+        gCanvas.requestPaint()
+        isUpdating = false
     }
 
     onCurrentDegreesChanged:
