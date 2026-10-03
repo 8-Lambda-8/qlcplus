@@ -152,12 +152,15 @@ Rectangle
             contentHeight: body.height
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: CustomScrollBar { }
+            ScrollBar.vertical: CustomScrollBar { id: mappingScrollBar }
 
             Column
             {
                 id: body
-                width: parent.width
+                // Attached scrollbars overlay Flickable content. Keep the row
+                // action buttons and mapping removal buttons clear of it.
+                width: parent.width - (mappingScrollBar.visible
+                                       ? UISettings.scrollBarWidth + 2 : 0)
                 spacing: 2
 
                 Repeater
