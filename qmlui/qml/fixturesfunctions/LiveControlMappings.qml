@@ -17,6 +17,27 @@ Rectangle
 {
     id: root
     color: UISettings.bgStrong
+    property var expandedSections: ({
+        "intensity": true,
+        "color": true,
+        "position": true,
+        "beam": true,
+        "actions": true
+    })
+
+    function sectionExpanded(sectionId)
+    {
+        return expandedSections[sectionId] !== false
+    }
+
+    function toggleSection(sectionId)
+    {
+        var updated = ({})
+        for (var key in expandedSections)
+            updated[key] = expandedSections[key]
+        updated[sectionId] = !sectionExpanded(sectionId)
+        expandedSections = updated
+    }
 
     function mappingsFor(target, preset)
     {
@@ -57,6 +78,37 @@ Rectangle
             return
         }
         liveControlManager.beginLearn(target, preset || ({}))
+    }
+
+    function presetGroups(presets, section)
+    {
+        var definitions = [
+            { id: "color", section: "Color", name: qsTr("Colors"), icon: "qrc:/colorwheel.svg", items: [] },
+            { id: "macro", section: "Color", name: qsTr("Macros"), icon: "qrc:/colorwheel.svg", items: [] },
+            { id: "gobo", section: "Beam", name: qsTr("Gobos"), icon: "qrc:/gobo.svg", items: [] },
+            { id: "shutter", section: "Beam", name: qsTr("Shutter"), icon: "qrc:/shutter.svg", items: [] },
+            { id: "other", section: "Beam", name: qsTr("Other capabilities"), icon: "qrc:/beam.svg", items: [] }
+        ]
+        for (var i = 0; i < presets.length; ++i)
+        {
+            var category = presets[i].category || "other"
+            for (var j = 0; j < definitions.length; ++j)
+            {
+                if (definitions[j].id === category)
+                {
+                    definitions[j].items.push(presets[i])
+                    break
+                }
+            }
+        }
+
+        var result = []
+        for (var k = 0; k < definitions.length; ++k)
+        {
+            if (definitions[k].section === section && definitions[k].items.length > 0)
+                result.push(definitions[k])
+        }
+        return result
     }
 
     CustomPopupDialog
@@ -175,27 +227,6 @@ Rectangle
                     delegate: mappingRow
                 }
 
-                Rectangle
-                {
-                    width: parent.width
-                    height: UISettings.listItemHeight
-                    color: UISettings.bgStronger
-                    RobotoText
-                    {
-                        anchors.fill: parent
-                        anchors.leftMargin: 5
-                        label: qsTr("Selected fixture presets")
-                        fontBold: true
-                    }
-                }
-
-                Repeater
-                {
-                    model: liveControlManager.presetTargets
-                    delegate: mappingRow
-                    property bool presetRows: true
-                }
-
                 RobotoText
                 {
                     visible: liveControlManager.presetTargets.length === 0
@@ -210,6 +241,77 @@ Rectangle
 
     Component
     {
+        id: presetGroup
+        Column
+        {
+            id: presetGroupRoot
+            width: body.width
+            property bool expanded: false
+
+            Rectangle
+            {
+                width: parent.width
+                height: UISettings.iconSizeMedium
+                color: groupMouse.containsMouse ? UISettings.hover : UISettings.bgMedium
+
+                MouseArea
+                {
+                    id: groupMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: presetGroupRoot.expanded = !presetGroupRoot.expanded
+                }
+
+                RowLayout
+                {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 5
+                    spacing: 4
+
+                    Text
+                    {
+                        Layout.alignment: Qt.AlignVCenter
+                        text: presetGroupRoot.expanded ? FontAwesome.fa_chevron_down
+                                                       : FontAwesome.fa_chevron_right
+                        color: UISettings.fgMedium
+                        font.family: UISettings.fontAwesomeFontName
+                        font.pixelSize: UISettings.textSizeDefault
+                    }
+                    Image
+                    {
+                        Layout.preferredWidth: parent.height - 8
+                        Layout.preferredHeight: width
+                        source: modelData.icon
+                        sourceSize: Qt.size(width, height)
+                    }
+                    RobotoText
+                    {
+                        Layout.fillWidth: true
+                        height: parent.height
+                        label: modelData.name
+                        fontBold: true
+                    }
+                    RobotoText
+                    {
+                        Layout.preferredWidth: implicitWidth
+                        height: parent.height
+                        label: modelData.items.length.toString()
+                        labelColor: UISettings.fgMedium
+                    }
+                }
+            }
+
+            Repeater
+            {
+                model: presetGroupRoot.expanded ? modelData.items : []
+                delegate: mappingRow
+            }
+        }
+    }
+
+    Component
+    {
         id: mappingRow
         Column
         {
@@ -217,6 +319,7 @@ Rectangle
             width: body.width
             property bool isPreset: modelData.group !== undefined && modelData.preset !== undefined
             property string targetId: isPreset ? "preset" : modelData.id
+            property string sectionId: isPreset ? "" : modelData.groupId
             property var presetData: isPreset ? modelData : ({})
             property var assigned: root.mappingsFor(targetId, presetData)
 
@@ -225,27 +328,132 @@ Rectangle
                 visible: !rowRoot.isPreset && (index === 0
                          || liveControlManager.targets[index - 1].group !== modelData.group)
                 width: parent.width
-                height: visible ? UISettings.listItemHeight : 0
-                color: UISettings.bgStronger
-                RobotoText
+                height: visible ? UISettings.iconSizeDefault : 0
+                color: UISettings.bgControl
+
+                MouseArea
                 {
                     anchors.fill: parent
-                    anchors.leftMargin: 5
-                    label: rowRoot.isPreset ? "" : modelData.group
-                    fontBold: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.toggleSection(rowRoot.sectionId)
+                }
+
+                RowLayout
+                {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    spacing: 6
+
+                    Text
+                    {
+                        Layout.alignment: Qt.AlignVCenter
+                        text: root.sectionExpanded(rowRoot.sectionId)
+                              ? FontAwesome.fa_chevron_down : FontAwesome.fa_chevron_right
+                        color: UISettings.fgMain
+                        font.family: UISettings.fontAwesomeFontName
+                        font.pixelSize: UISettings.textSizeDefault
+                    }
+                    Item
+                    {
+                        Layout.preferredWidth: parent.height - 12
+                        Layout.preferredHeight: width
+                        property string iconSource: rowRoot.targetId === "intensity" ? "qrc:/intensity.svg"
+                                : rowRoot.targetId === "hue" ? "qrc:/color.svg"
+                                : rowRoot.targetId === "pan" ? "qrc:/position.svg"
+                                : rowRoot.targetId === "zoom" ? "qrc:/beam.svg" : ""
+
+                        Image
+                        {
+                            visible: parent.iconSource !== ""
+                            anchors.fill: parent
+                            source: parent.iconSource
+                            sourceSize: Qt.size(width, height)
+                        }
+                        Text
+                        {
+                            visible: rowRoot.targetId === "highlight"
+                            anchors.centerIn: parent
+                            text: FontAwesome.fa_bolt
+                            color: UISettings.fgMain
+                            font.family: UISettings.fontAwesomeFontName
+                            font.pixelSize: parent.height * 0.7
+                        }
+                    }
+                    RobotoText
+                    {
+                        Layout.fillWidth: true
+                        height: parent.height
+                        label: rowRoot.isPreset ? "" : modelData.group
+                        fontBold: true
+                        fontSize: UISettings.textSizeDefault + 1
+                    }
                 }
             }
 
             Rectangle
             {
+                visible: rowRoot.isPreset || root.sectionExpanded(rowRoot.sectionId)
                 width: parent.width
-                height: UISettings.iconSizeMedium
+                height: visible ? UISettings.iconSizeMedium : 0
                 color: UISettings.bgMedium
                 RowLayout
                 {
                     anchors.fill: parent
                     anchors.leftMargin: 5
+                    anchors.rightMargin: 2
                     spacing: 3
+                    Item
+                    {
+                        width: parent.height
+                        height: width
+                        opacity: rowRoot.isPreset || contextManager.liveControlSupported(rowRoot.targetId)
+                                 ? 1.0 : 0.4
+                        property string iconSource: rowRoot.isPreset
+                                ? (modelData.group === QLCChannel.Shutter ? "qrc:/shutter.svg"
+                                   : modelData.group === QLCChannel.Gobo ? "qrc:/gobo.svg"
+                                   : "qrc:/colorwheel.svg")
+                                : modelData.icon
+
+                        Image
+                        {
+                            visible: parent.iconSource !== ""
+                            anchors.centerIn: parent
+                            width: parent.width - 6
+                            height: width
+                            source: parent.iconSource
+                            sourceSize: Qt.size(width, height)
+                        }
+                        Text
+                        {
+                            visible: rowRoot.targetId === "highlight"
+                            anchors.centerIn: parent
+                            text: FontAwesome.fa_bolt
+                            color: UISettings.fgMain
+                            font.family: UISettings.fontAwesomeFontName
+                            font.pixelSize: parent.height * 0.65
+                        }
+                        Rectangle
+                        {
+                            visible: rowRoot.targetId.endsWith("-next")
+                                     || rowRoot.targetId.endsWith("-previous")
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            width: parent.width * 0.48
+                            height: width
+                            radius: width / 2
+                            color: UISettings.bgStronger
+                            Text
+                            {
+                                anchors.centerIn: parent
+                                text: rowRoot.targetId.endsWith("-next")
+                                      ? FontAwesome.fa_arrow_right : FontAwesome.fa_arrow_left
+                                color: UISettings.fgMain
+                                font.family: UISettings.fontAwesomeFontName
+                                font.pixelSize: parent.height * 0.65
+                            }
+                        }
+                    }
                     RobotoText
                     {
                         Layout.fillWidth: true
@@ -276,16 +484,31 @@ Rectangle
 
             Repeater
             {
-                model: rowRoot.assigned
+                model: (rowRoot.isPreset || root.sectionExpanded(rowRoot.sectionId))
+                       ? rowRoot.assigned : []
                 delegate: Rectangle
                 {
-                    width: rowRoot.width
+                    x: 12
+                    width: rowRoot.width - x
                     height: UISettings.listItemHeight
-                    color: "transparent"
+                    color: UISettings.bgStronger
+
+                    Rectangle
+                    {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 3
+                        color: modelData.valid ? UISettings.highlight : "orange"
+                    }
+
                     RowLayout
                     {
                         anchors.fill: parent
-                        anchors.leftMargin: 12
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 2
+                        spacing: 4
+
                         RobotoText
                         {
                             Layout.fillWidth: true
@@ -317,6 +540,17 @@ Rectangle
                         }
                     }
                 }
+            }
+
+            Repeater
+            {
+                model: !rowRoot.isPreset && root.sectionExpanded(rowRoot.sectionId)
+                       && rowRoot.targetId === "macro-next"
+                       ? root.presetGroups(liveControlManager.presetTargets, "Color")
+                       : (!rowRoot.isPreset && root.sectionExpanded(rowRoot.sectionId)
+                          && rowRoot.targetId === "gobo-wheel-next"
+                          ? root.presetGroups(liveControlManager.presetTargets, "Beam") : [])
+                delegate: presetGroup
             }
         }
     }

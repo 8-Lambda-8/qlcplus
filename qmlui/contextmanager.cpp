@@ -1884,9 +1884,13 @@ bool ContextManager::liveControlSupported(const QString &target) const
 
 QVariantList ContextManager::liveControlPresets() const
 {
-    QVariantList result;
+    QVariantList colors;
+    QVariantList gobos;
+    QVariantList macros;
+    QVariantList shutters;
+    QVariantList others;
     QSet<QString> seen;
-    const int groups[] = { QLCChannel::Shutter, QLCChannel::Colour, QLCChannel::Gobo };
+    const int groups[] = { QLCChannel::Colour, QLCChannel::Gobo, QLCChannel::Shutter };
     for (int group : groups)
     {
         for (const SceneValue &sv : m_channelsMap.values(group))
@@ -1903,17 +1907,51 @@ QVariantList ContextManager::liveControlPresets() const
                 item["name"] = capability->name();
                 item["resources"] = capability->resources().isEmpty() ? QString() : QString::fromUtf8(
                             QJsonDocument::fromVariant(capability->resources()).toJson(QJsonDocument::Compact));
+
+                QString category;
+                if (channel->preset() == QLCChannel::ColorWheel)
+                    category = QStringLiteral("color");
+                else if (channel->preset() == QLCChannel::GoboWheel)
+                    category = QStringLiteral("gobo");
+                else if (channel->preset() == QLCChannel::ColorMacro)
+                    category = QStringLiteral("macro");
+                else if (group == QLCChannel::Colour)
+                    category = QStringLiteral("color");
+                else if (group == QLCChannel::Gobo)
+                    category = QStringLiteral("gobo");
+                else if (group == QLCChannel::Shutter)
+                    category = QStringLiteral("shutter");
+                else
+                    category = QStringLiteral("other");
+                item["category"] = category;
+
                 const QString key = QStringLiteral("%1|%2|%3|%4")
                         .arg(group).arg(capability->presetInt())
                         .arg(item["resources"].toString(), capability->name().toCaseFolded());
                 if (!seen.contains(key))
                 {
                     seen.insert(key);
-                    result.append(item);
+                    if (category == QStringLiteral("color"))
+                        colors.append(item);
+                    else if (category == QStringLiteral("gobo"))
+                        gobos.append(item);
+                    else if (category == QStringLiteral("macro"))
+                        macros.append(item);
+                    else if (category == QStringLiteral("shutter"))
+                        shutters.append(item);
+                    else
+                        others.append(item);
                 }
             }
         }
     }
+
+    QVariantList result;
+    result.append(colors);
+    result.append(gobos);
+    result.append(macros);
+    result.append(shutters);
+    result.append(others);
     return result;
 }
 

@@ -21,30 +21,30 @@
 
 namespace
 {
-const struct { const char *id; const char *name; const char *group; bool button; } s_targets[] = {
-    { "intensity", QT_TR_NOOP("Intensity"), QT_TR_NOOP("Intensity"), false },
-    { "hue", QT_TR_NOOP("Hue"), QT_TR_NOOP("Color"), false },
-    { "saturation", QT_TR_NOOP("Saturation"), QT_TR_NOOP("Color"), false },
-    { "color-value", QT_TR_NOOP("Color value"), QT_TR_NOOP("Color"), false },
-    { "red", QT_TR_NOOP("Red"), QT_TR_NOOP("Color"), false },
-    { "green", QT_TR_NOOP("Green"), QT_TR_NOOP("Color"), false },
-    { "blue", QT_TR_NOOP("Blue"), QT_TR_NOOP("Color"), false },
-    { "white", QT_TR_NOOP("White"), QT_TR_NOOP("Color"), false },
-    { "amber", QT_TR_NOOP("Amber"), QT_TR_NOOP("Color"), false },
-    { "uv", QT_TR_NOOP("UV"), QT_TR_NOOP("Color"), false },
-    { "color-wheel-previous", QT_TR_NOOP("Previous color-wheel capability"), QT_TR_NOOP("Color"), true },
-    { "color-wheel-next", QT_TR_NOOP("Next color-wheel capability"), QT_TR_NOOP("Color"), true },
-    { "macro-previous", QT_TR_NOOP("Previous macro capability"), QT_TR_NOOP("Color"), true },
-    { "macro-next", QT_TR_NOOP("Next macro capability"), QT_TR_NOOP("Color"), true },
-    { "pan", QT_TR_NOOP("Pan"), QT_TR_NOOP("Position"), false },
-    { "tilt", QT_TR_NOOP("Tilt"), QT_TR_NOOP("Position"), false },
-    { "position-center", QT_TR_NOOP("Center position"), QT_TR_NOOP("Position"), true },
-    { "zoom", QT_TR_NOOP("Zoom"), QT_TR_NOOP("Beam"), false },
-    { "strobe", QT_TR_NOOP("Strobe rate"), QT_TR_NOOP("Beam"), false },
-    { "gobo-wheel-previous", QT_TR_NOOP("Previous gobo-wheel capability"), QT_TR_NOOP("Beam"), true },
-    { "gobo-wheel-next", QT_TR_NOOP("Next gobo-wheel capability"), QT_TR_NOOP("Beam"), true },
-    { "highlight", QT_TR_NOOP("Highlight selection"), QT_TR_NOOP("Actions"), true },
-    { "preset", QT_TR_NOOP("Capability preset"), QT_TR_NOOP("Presets"), true }
+const struct { const char *id; const char *name; const char *group; const char *icon; bool button; } s_targets[] = {
+    { "intensity", QT_TR_NOOP("Intensity"), QT_TR_NOOP("Intensity"), "qrc:/intensity.svg", false },
+    { "hue", QT_TR_NOOP("Hue"), QT_TR_NOOP("Color"), "qrc:/color.svg", false },
+    { "saturation", QT_TR_NOOP("Saturation"), QT_TR_NOOP("Color"), "qrc:/color.svg", false },
+    { "color-value", QT_TR_NOOP("Color value"), QT_TR_NOOP("Color"), "qrc:/color.svg", false },
+    { "red", QT_TR_NOOP("Red"), QT_TR_NOOP("Color"), "qrc:/color.svg", false },
+    { "green", QT_TR_NOOP("Green"), QT_TR_NOOP("Color"), "qrc:/color.svg", false },
+    { "blue", QT_TR_NOOP("Blue"), QT_TR_NOOP("Color"), "qrc:/color.svg", false },
+    { "white", QT_TR_NOOP("White"), QT_TR_NOOP("Color"), "qrc:/white.svg", false },
+    { "amber", QT_TR_NOOP("Amber"), QT_TR_NOOP("Color"), "qrc:/amber.svg", false },
+    { "uv", QT_TR_NOOP("UV"), QT_TR_NOOP("Color"), "qrc:/uv.svg", false },
+    { "color-wheel-previous", QT_TR_NOOP("Previous color-wheel capability"), QT_TR_NOOP("Color"), "qrc:/colorwheel.svg", true },
+    { "color-wheel-next", QT_TR_NOOP("Next color-wheel capability"), QT_TR_NOOP("Color"), "qrc:/colorwheel.svg", true },
+    { "macro-previous", QT_TR_NOOP("Previous macro capability"), QT_TR_NOOP("Color"), "qrc:/colorwheel.svg", true },
+    { "macro-next", QT_TR_NOOP("Next macro capability"), QT_TR_NOOP("Color"), "qrc:/colorwheel.svg", true },
+    { "pan", QT_TR_NOOP("Pan"), QT_TR_NOOP("Position"), "qrc:/pan.svg", false },
+    { "tilt", QT_TR_NOOP("Tilt"), QT_TR_NOOP("Position"), "qrc:/tilt.svg", false },
+    { "position-center", QT_TR_NOOP("Center position"), QT_TR_NOOP("Position"), "qrc:/position.svg", true },
+    { "zoom", QT_TR_NOOP("Zoom"), QT_TR_NOOP("Beam"), "qrc:/beam.svg", false },
+    { "strobe", QT_TR_NOOP("Strobe rate"), QT_TR_NOOP("Beam"), "qrc:/strobe.svg", false },
+    { "gobo-wheel-previous", QT_TR_NOOP("Previous gobo-wheel capability"), QT_TR_NOOP("Beam"), "qrc:/gobo.svg", true },
+    { "gobo-wheel-next", QT_TR_NOOP("Next gobo-wheel capability"), QT_TR_NOOP("Beam"), "qrc:/gobo.svg", true },
+    { "highlight", QT_TR_NOOP("Highlight selection"), QT_TR_NOOP("Actions"), "", true },
+    { "preset", QT_TR_NOOP("Capability preset"), QT_TR_NOOP("Presets"), "", true }
 };
 
 bool isButtonTarget(const QString &target)
@@ -96,6 +96,8 @@ QVariantList LiveControlManager::targets() const
         item["id"] = QString::fromLatin1(target.id);
         item["name"] = tr(target.name);
         item["group"] = tr(target.group);
+        item["groupId"] = QString::fromLatin1(target.group).toLower();
+        item["icon"] = QString::fromLatin1(target.icon);
         item["button"] = target.button;
         result.append(item);
     }
