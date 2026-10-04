@@ -41,6 +41,102 @@
 #include "app.h"
 #include "doc.h"
 
+namespace
+{
+QList<QLCCapability *> liveControlCycleCapabilities(const QLCChannel *channel,
+                                                    const QString &target)
+{
+    if (!channel)
+        return {};
+
+    const QList<QLCCapability *> all = channel->capabilities();
+    if (all.isEmpty())
+        return {};
+
+    const QString channelName = channel->name().toCaseFolded();
+    if (target.startsWith(QStringLiteral("macro")))
+    {
+        const bool macroChannel = channel->preset() == QLCChannel::ColorMacro
+                || channelName.contains(QStringLiteral("macro"));
+        const bool macroGroup = channel->group() == QLCChannel::Colour
+                || channel->group() == QLCChannel::Effect;
+        return macroChannel && macroGroup ? all : QList<QLCCapability *>();
+    }
+
+    QLCChannel::Preset expectedChannelPreset;
+    QLCChannel::Group expectedGroup;
+    if (target.startsWith(QStringLiteral("color-wheel")))
+    {
+        expectedChannelPreset = QLCChannel::ColorWheel;
+        expectedGroup = QLCChannel::Colour;
+    }
+    else if (target.startsWith(QStringLiteral("gobo-wheel")))
+    {
+        expectedChannelPreset = QLCChannel::GoboWheel;
+        expectedGroup = QLCChannel::Gobo;
+    }
+    else
+        return {};
+
+    if (channel->group() != expectedGroup)
+        return {};
+
+    // A channel preset is the strongest descriptor and retains the existing
+    // behaviour of cycling every capability on that channel.
+    if (channel->preset() == expectedChannelPreset)
+        return all;
+
+    // A dedicated macro channel is not also a physical color wheel, even if
+    // its capabilities contain ColorMacro resource descriptors.
+    if (target.startsWith(QStringLiteral("color-wheel"))
+            && (channel->preset() == QLCChannel::ColorMacro
+                || channelName.contains(QStringLiteral("macro"))))
+        return {};
+
+    // Many fixture definitions describe wheel positions only through their
+    // capability presets. Fall back to those descriptors when the channel
+    // itself is Custom, omitting continuous wheel-rotation ranges.
+    QList<QLCCapability *> result;
+    bool hasTypedCapability = false;
+    for (QLCCapability *capability : all)
+    {
+        const QLCCapability::Preset preset = capability->preset();
+        bool matches = false;
+        if (target.startsWith(QStringLiteral("gobo-wheel")))
+            matches = preset == QLCCapability::GoboMacro
+                    || preset == QLCCapability::GoboShakeMacro
+                    || preset == QLCCapability::GenericPicture;
+        else
+            matches = preset == QLCCapability::ColorMacro
+                    || preset == QLCCapability::ColorDoubleMacro
+                    || preset == QLCCapability::ColorWheelIndex;
+
+        if (matches)
+        {
+            hasTypedCapability = true;
+            result.append(capability);
+        }
+        else if (preset == QLCCapability::Custom
+                 && !target.startsWith(QStringLiteral("macro")))
+        {
+            // Keep open/off positions in physical wheel cycles. They are
+            // included only if the channel also contains a typed wheel item.
+            result.append(capability);
+        }
+    }
+    return hasTypedCapability ? result : QList<QLCCapability *>();
+}
+
+QList<int> liveControlCycleGroups(const QString &target)
+{
+    if (target.startsWith(QStringLiteral("macro")))
+        return { QLCChannel::Colour, QLCChannel::Effect };
+    if (target.startsWith(QStringLiteral("gobo-wheel")))
+        return { QLCChannel::Gobo };
+    return { QLCChannel::Colour };
+}
+}
+
 ContextManager::ContextManager(QQuickView *view, Doc *doc,
                                FixtureManager *fxMgr,
                                FunctionManager *funcMgr,
@@ -1852,24 +1948,15 @@ bool ContextManager::liveControlSupported(const QString &target) const
             || target == QStringLiteral("macro-next") || target == QStringLiteral("macro-previous")
             || target == QStringLiteral("gobo-wheel-next") || target == QStringLiteral("gobo-wheel-previous"))
     {
-        QLCChannel::Preset channelPreset = QLCChannel::Custom;
-        int group = QLCChannel::Colour;
-        if (target.startsWith(QStringLiteral("color-wheel")))
-            channelPreset = QLCChannel::ColorWheel;
-        else if (target.startsWith(QStringLiteral("macro")))
-            channelPreset = QLCChannel::ColorMacro;
-        else
+        for (int group : liveControlCycleGroups(target))
         {
-            channelPreset = QLCChannel::GoboWheel;
-            group = QLCChannel::Gobo;
-        }
-
-        for (const SceneValue &sv : m_channelsMap.values(group))
-        {
-            Fixture *fixture = m_doc->fixture(sv.fxi);
-            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
-            if (channel && channel->preset() == channelPreset && !channel->capabilities().isEmpty())
-                return true;
+            for (const SceneValue &sv : m_channelsMap.values(group))
+            {
+                Fixture *fixture = m_doc->fixture(sv.fxi);
+                const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+                if (!liveControlCycleCapabilities(channel, target).isEmpty())
+                    return true;
+            }
         }
         return false;
     }
@@ -1989,47 +2076,38 @@ void ContextManager::applyLiveControl(const QString &target, int value, bool rel
             || target == QStringLiteral("gobo-wheel-next") || target == QStringLiteral("gobo-wheel-previous"))
     {
         const bool forwards = target.endsWith(QStringLiteral("-next"));
-        QLCChannel::Preset channelPreset = QLCChannel::Custom;
-        int group = QLCChannel::Colour;
-        if (target.startsWith(QStringLiteral("color-wheel")))
-            channelPreset = QLCChannel::ColorWheel;
-        else if (target.startsWith(QStringLiteral("macro")))
-            channelPreset = QLCChannel::ColorMacro;
-        else
+        for (int group : liveControlCycleGroups(target))
         {
-            channelPreset = QLCChannel::GoboWheel;
-            group = QLCChannel::Gobo;
-        }
-
-        for (const SceneValue &sv : m_channelsMap.values(group))
-        {
-            Fixture *fixture = m_doc->fixture(sv.fxi);
-            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
-            if (!channel || channel->preset() != channelPreset || channel->capabilities().isEmpty())
-                continue;
-
-            const QList<QLCCapability *> capabilities = channel->capabilities();
-            const int currentValue = fixture->channelValueAt(sv.channel);
-            int currentIndex = -1;
-            for (int i = 0; i < capabilities.size(); ++i)
+            for (const SceneValue &sv : m_channelsMap.values(group))
             {
-                const QLCCapability *capability = capabilities.at(i);
-                if (currentValue >= capability->min() && currentValue <= capability->max())
+                Fixture *fixture = m_doc->fixture(sv.fxi);
+                const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+                const QList<QLCCapability *> capabilities = liveControlCycleCapabilities(channel, target);
+                if (capabilities.isEmpty())
+                    continue;
+
+                const int currentValue = fixture->channelValueAt(sv.channel);
+                int currentIndex = -1;
+                for (int i = 0; i < capabilities.size(); ++i)
                 {
-                    currentIndex = i;
-                    break;
+                    const QLCCapability *capability = capabilities.at(i);
+                    if (currentValue >= capability->min() && currentValue <= capability->max())
+                    {
+                        currentIndex = i;
+                        break;
+                    }
                 }
+
+                int nextIndex;
+                if (currentIndex < 0)
+                    nextIndex = forwards ? 0 : capabilities.size() - 1;
+                else if (forwards)
+                    nextIndex = (currentIndex + 1) % capabilities.size();
+                else
+                    nextIndex = (currentIndex + capabilities.size() - 1) % capabilities.size();
+
+                outputValues({ SceneValue(sv.fxi, sv.channel, capabilities.at(nextIndex)->middle()) });
             }
-
-            int nextIndex;
-            if (currentIndex < 0)
-                nextIndex = forwards ? 0 : capabilities.size() - 1;
-            else if (forwards)
-                nextIndex = (currentIndex + 1) % capabilities.size();
-            else
-                nextIndex = (currentIndex + capabilities.size() - 1) % capabilities.size();
-
-            outputValues({ SceneValue(sv.fxi, sv.channel, capabilities.at(nextIndex)->middle()) });
         }
         return;
     }
