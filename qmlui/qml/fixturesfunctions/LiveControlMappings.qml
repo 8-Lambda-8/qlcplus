@@ -66,6 +66,12 @@ Rectangle
         standardButtons: Dialog.Ok
     }
 
+    PopupCustomFeedback
+    {
+        id: feedbackPopup
+        widgetObjRef: liveControlManager
+    }
+
     CustomPopupDialog
     {
         id: manualPopup
@@ -286,6 +292,19 @@ Rectangle
                             height: parent.height
                             label: modelData.sourceName
                             labelColor: modelData.valid ? UISettings.fgMain : "orange"
+                        }
+                        IconButton
+                        {
+                            visible: modelData.customFeedback
+                            width: UISettings.iconSizeMedium
+                            height: width
+                            imgSource: "qrc:/inputoutput.svg"
+                            tooltip: qsTr("Custom feedback selection")
+                            onClicked:
+                            {
+                                feedbackPopup.mappingId = modelData.id
+                                feedbackPopup.open()
+                            }
                         }
                         IconButton
                         {

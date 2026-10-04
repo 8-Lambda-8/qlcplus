@@ -1848,6 +1848,31 @@ bool ContextManager::liveControlSupported(const QString &target) const
     if (target == QStringLiteral("tilt")) return m_channelsMap.contains(QLCChannel::Tilt);
     if (target == QStringLiteral("zoom")) return m_channelsMap.contains(QLCChannel::Beam);
     if (target == QStringLiteral("strobe")) return m_channelsMap.contains(QLCChannel::Shutter);
+    if (target == QStringLiteral("color-wheel-next") || target == QStringLiteral("color-wheel-previous")
+            || target == QStringLiteral("macro-next") || target == QStringLiteral("macro-previous")
+            || target == QStringLiteral("gobo-wheel-next") || target == QStringLiteral("gobo-wheel-previous"))
+    {
+        QLCChannel::Preset channelPreset = QLCChannel::Custom;
+        int group = QLCChannel::Colour;
+        if (target.startsWith(QStringLiteral("color-wheel")))
+            channelPreset = QLCChannel::ColorWheel;
+        else if (target.startsWith(QStringLiteral("macro")))
+            channelPreset = QLCChannel::ColorMacro;
+        else
+        {
+            channelPreset = QLCChannel::GoboWheel;
+            group = QLCChannel::Gobo;
+        }
+
+        for (const SceneValue &sv : m_channelsMap.values(group))
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+            if (channel && channel->preset() == channelPreset && !channel->capabilities().isEmpty())
+                return true;
+        }
+        return false;
+    }
     if (target == QStringLiteral("hue") || target == QStringLiteral("saturation")
             || target == QStringLiteral("color-value"))
         return m_channelsMap.contains(QLCChannel::Red) || m_channelsMap.contains(QLCChannel::Cyan);
@@ -1920,6 +1945,56 @@ void ContextManager::applyLiveControl(const QString &target, int value, bool rel
     if (target == QStringLiteral("uv")) { setChannelValueByType(QLCChannel::UV, value); return; }
     if (target == QStringLiteral("position-center")) { setPositionCenter(); return; }
     if (target == QStringLiteral("highlight")) { highlightFixtureSelection(); return; }
+
+    if (target == QStringLiteral("color-wheel-next") || target == QStringLiteral("color-wheel-previous")
+            || target == QStringLiteral("macro-next") || target == QStringLiteral("macro-previous")
+            || target == QStringLiteral("gobo-wheel-next") || target == QStringLiteral("gobo-wheel-previous"))
+    {
+        const bool forwards = target.endsWith(QStringLiteral("-next"));
+        QLCChannel::Preset channelPreset = QLCChannel::Custom;
+        int group = QLCChannel::Colour;
+        if (target.startsWith(QStringLiteral("color-wheel")))
+            channelPreset = QLCChannel::ColorWheel;
+        else if (target.startsWith(QStringLiteral("macro")))
+            channelPreset = QLCChannel::ColorMacro;
+        else
+        {
+            channelPreset = QLCChannel::GoboWheel;
+            group = QLCChannel::Gobo;
+        }
+
+        for (const SceneValue &sv : m_channelsMap.values(group))
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            const QLCChannel *channel = fixture ? fixture->channel(sv.channel) : nullptr;
+            if (!channel || channel->preset() != channelPreset || channel->capabilities().isEmpty())
+                continue;
+
+            const QList<QLCCapability *> capabilities = channel->capabilities();
+            const int currentValue = fixture->channelValueAt(sv.channel);
+            int currentIndex = -1;
+            for (int i = 0; i < capabilities.size(); ++i)
+            {
+                const QLCCapability *capability = capabilities.at(i);
+                if (currentValue >= capability->min() && currentValue <= capability->max())
+                {
+                    currentIndex = i;
+                    break;
+                }
+            }
+
+            int nextIndex;
+            if (currentIndex < 0)
+                nextIndex = forwards ? 0 : capabilities.size() - 1;
+            else if (forwards)
+                nextIndex = (currentIndex + 1) % capabilities.size();
+            else
+                nextIndex = (currentIndex + capabilities.size() - 1) % capabilities.size();
+
+            outputValues({ SceneValue(sv.fxi, sv.channel, capabilities.at(nextIndex)->middle()) });
+        }
+        return;
+    }
 
     if (target == QStringLiteral("hue") || target == QStringLiteral("saturation")
             || target == QStringLiteral("color-value"))

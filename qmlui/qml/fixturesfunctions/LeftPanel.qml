@@ -60,6 +60,13 @@ SidePanel
             // keeps those pages in sync when a mapped shutter, wheel, or gobo action fires.
             if (target === "strobe" && shutterTool.visible)
                 shutterTool.updatePresets(fixtureManager.shutterChannels)
+            else if ((target === "color-wheel-next" || target === "color-wheel-previous"
+                      || target === "macro-next" || target === "macro-previous")
+                     && cWheelTool.visible)
+                cWheelTool.updatePresets(fixtureManager.colorWheelChannels)
+            else if ((target === "gobo-wheel-next" || target === "gobo-wheel-previous")
+                     && gobosTool.visible)
+                gobosTool.updatePresets(fixtureManager.goboChannels)
             else if (target === "preset")
             {
                 if (preset.group === QLCChannel.Shutter && shutterTool.visible)

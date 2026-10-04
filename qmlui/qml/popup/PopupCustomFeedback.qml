@@ -35,6 +35,9 @@ CustomPopupDialog
     property var widgetObjRef: null
     property var universe
     property var channel
+    // Live-control mappings identify a source by mapping ID because the same
+    // universe/channel can intentionally drive more than one target.
+    property int mappingId: -1
 
     property alias lowerValue: lowerValueSpin.value
     property alias upperValue: upperValueSpin.value
@@ -54,7 +57,9 @@ CustomPopupDialog
         if (!widgetObjRef)
             return
 
-        var sourceInfo = widgetObjRef.inputSourceFullInfo(universe, channel)
+        var sourceInfo = mappingId >= 0
+                ? widgetObjRef.mappingFeedbackInfo(mappingId)
+                : widgetObjRef.inputSourceFullInfo(universe, channel)
 
         lowerValue = sourceInfo.lowerValue
         upperValue = sourceInfo.upperValue
@@ -98,11 +103,20 @@ CustomPopupDialog
         if (!widgetObjRef)
             return
 
-        widgetObjRef.updateInputSourceFeedbackValues(universe, channel, lowerValue, upperValue, monitorValue)
+        if (mappingId >= 0)
+            widgetObjRef.updateMappingFeedbackValues(mappingId, lowerValue, upperValue, monitorValue)
+        else
+            widgetObjRef.updateInputSourceFeedbackValues(universe, channel, lowerValue, upperValue, monitorValue)
 
         if (hasMidiChannelTable)
-            widgetObjRef.updateInputSourceExtraParams(universe, channel,
-                    lowerChannelCombo.currentIndex, upperChannelCombo.currentIndex, monitorChannelCombo.currentIndex)
+        {
+            if (mappingId >= 0)
+                widgetObjRef.updateMappingFeedbackExtraParams(mappingId,
+                        lowerChannelCombo.currentIndex, upperChannelCombo.currentIndex, monitorChannelCombo.currentIndex)
+            else
+                widgetObjRef.updateInputSourceExtraParams(universe, channel,
+                        lowerChannelCombo.currentIndex, upperChannelCombo.currentIndex, monitorChannelCombo.currentIndex)
+        }
     }
 
     function setFeedbackValue(value, color)

@@ -12,6 +12,8 @@
 #include <QSharedPointer>
 #include <QVariant>
 
+#include "qlcinputfeedback.h"
+
 class ContextManager;
 class Doc;
 class QLCInputSource;
@@ -47,6 +49,9 @@ public:
                                 const QVariantMap &preset = QVariantMap());
     Q_INVOKABLE void removeMapping(int id);
     Q_INVOKABLE void clearMappings();
+    Q_INVOKABLE QVariant mappingFeedbackInfo(int id) const;
+    Q_INVOKABLE bool updateMappingFeedbackValues(int id, quint8 lower, quint8 upper, quint8 monitor);
+    Q_INVOKABLE bool updateMappingFeedbackExtraParams(int id, int lower, int upper, int monitor);
 
     bool loadXML(QXmlStreamReader &reader);
     bool saveXML(QXmlStreamWriter *writer) const;
@@ -77,12 +82,21 @@ private:
         bool caught = false;
         bool hasValue = false;
         uchar lastValue = 0;
+        uchar feedbackLower = 0;
+        uchar feedbackUpper = 255;
+        uchar feedbackMonitor = 255;
+        QVariant feedbackLowerParams = -1;
+        QVariant feedbackUpperParams = -1;
+        QVariant feedbackMonitorParams = -1;
         QSharedPointer<QLCInputSource> source;
     };
 
     bool isKnownTarget(const QString &target) const;
+    bool supportsCustomFeedback(const Mapping &mapping) const;
     void configureSource(Mapping &mapping);
-    void dispatch(Mapping &mapping, uchar value, bool relative = false);
+    bool dispatch(Mapping &mapping, uchar value, bool relative = false);
+    void sendFeedback(Mapping &mapping, int value,
+                      QLCInputFeedback::FeedbackType type = QLCInputFeedback::Undefinded);
     QString sourceName(quint32 universe, quint32 channel) const;
     bool sourceValid(quint32 universe, quint32 channel) const;
 

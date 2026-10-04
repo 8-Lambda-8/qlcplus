@@ -32,14 +32,27 @@ const struct { const char *id; const char *name; const char *group; bool button;
     { "white", QT_TR_NOOP("White"), QT_TR_NOOP("Color"), false },
     { "amber", QT_TR_NOOP("Amber"), QT_TR_NOOP("Color"), false },
     { "uv", QT_TR_NOOP("UV"), QT_TR_NOOP("Color"), false },
+    { "color-wheel-previous", QT_TR_NOOP("Previous color-wheel capability"), QT_TR_NOOP("Color"), true },
+    { "color-wheel-next", QT_TR_NOOP("Next color-wheel capability"), QT_TR_NOOP("Color"), true },
+    { "macro-previous", QT_TR_NOOP("Previous macro capability"), QT_TR_NOOP("Color"), true },
+    { "macro-next", QT_TR_NOOP("Next macro capability"), QT_TR_NOOP("Color"), true },
     { "pan", QT_TR_NOOP("Pan"), QT_TR_NOOP("Position"), false },
     { "tilt", QT_TR_NOOP("Tilt"), QT_TR_NOOP("Position"), false },
     { "position-center", QT_TR_NOOP("Center position"), QT_TR_NOOP("Position"), true },
     { "zoom", QT_TR_NOOP("Zoom"), QT_TR_NOOP("Beam"), false },
     { "strobe", QT_TR_NOOP("Strobe rate"), QT_TR_NOOP("Beam"), false },
+    { "gobo-wheel-previous", QT_TR_NOOP("Previous gobo-wheel capability"), QT_TR_NOOP("Beam"), true },
+    { "gobo-wheel-next", QT_TR_NOOP("Next gobo-wheel capability"), QT_TR_NOOP("Beam"), true },
     { "highlight", QT_TR_NOOP("Highlight selection"), QT_TR_NOOP("Actions"), true },
     { "preset", QT_TR_NOOP("Capability preset"), QT_TR_NOOP("Presets"), true }
 };
+
+bool isButtonTarget(const QString &target)
+{
+    return target == QStringLiteral("position-center") || target == QStringLiteral("highlight")
+            || target == QStringLiteral("preset") || target.endsWith(QStringLiteral("-next"))
+            || target.endsWith(QStringLiteral("-previous"));
+}
 }
 
 LiveControlManager::LiveControlManager(Doc *doc, ContextManager *contextManager, QObject *parent)
@@ -102,6 +115,7 @@ QVariantList LiveControlManager::mappings() const
         item["sourceName"] = sourceName(mapping.universe, mapping.channel);
         item["valid"] = sourceValid(mapping.universe, mapping.channel);
         item["preset"] = mapping.preset;
+        item["customFeedback"] = supportsCustomFeedback(mapping);
         item["name"] = mapping.target == QStringLiteral("preset")
                 ? mapping.preset.value("name").toString() : mapping.target;
         result.append(item);
@@ -175,6 +189,16 @@ bool LiveControlManager::addMapping(const QString &target, quint32 universe, qui
     mapping.preset = preset;
     configureSource(mapping);
     m_mappings.append(mapping);
+    Mapping &added = m_mappings.last();
+    const qreal current = m_contextManager->liveControlValue(added.target);
+    if (current >= 0)
+    {
+        if (added.source)
+            added.source->updateOuputValue(uchar(qBound(0, qRound(current), 255)));
+        sendFeedback(added, qRound(current));
+    }
+    else if (isButtonTarget(added.target))
+        sendFeedback(added, 0, QLCInputFeedback::LowerValue);
     m_doc->setModified();
     emit mappingsChanged();
     return true;
@@ -185,7 +209,27 @@ void LiveControlManager::configureSource(Mapping &mapping)
     Universe *universe = m_doc->inputOutputMap()->universe(mapping.universe);
     if (!universe || !universe->inputPatch() || !universe->inputPatch()->profile())
         return;
-    QLCInputChannel *channel = universe->inputPatch()->profile()->channel(mapping.channel);
+    QLCInputProfile *profile = universe->inputPatch()->profile();
+    QLCInputChannel *channel = profile->channel(mapping.channel);
+    if (!channel)
+        return;
+
+    const QVariant profileParams = profile->channelExtraParams(channel);
+    if (mapping.feedbackLowerParams.toInt() == -1)
+        mapping.feedbackLowerParams = profileParams;
+    if (mapping.feedbackUpperParams.toInt() == -1)
+        mapping.feedbackUpperParams = profileParams;
+    if (mapping.feedbackMonitorParams.toInt() == -1)
+        mapping.feedbackMonitorParams = profileParams;
+
+    if (channel->type() == QLCInputChannel::Button)
+    {
+        if (mapping.feedbackLower == 0)
+            mapping.feedbackLower = channel->lowerValue();
+        if (mapping.feedbackUpper == UCHAR_MAX)
+            mapping.feedbackUpper = channel->upperValue();
+    }
+
     if (!channel || channel->movementType() != QLCInputChannel::Relative)
         return;
 
@@ -199,12 +243,114 @@ void LiveControlManager::configureSource(Mapping &mapping)
         mapping.source->updateOuputValue(uchar(qBound(0, qRound(current), 255)));
 }
 
+bool LiveControlManager::supportsCustomFeedback(const Mapping &mapping) const
+{
+    Universe *universe = m_doc->inputOutputMap()->universe(mapping.universe);
+    if (!universe || !universe->inputPatch() || !universe->inputPatch()->profile())
+        return false;
+    QLCInputChannel *channel = universe->inputPatch()->profile()->channel(mapping.channel);
+    return channel && channel->type() == QLCInputChannel::Button;
+}
+
+QVariant LiveControlManager::mappingFeedbackInfo(int id) const
+{
+    for (const Mapping &mapping : m_mappings)
+    {
+        if (mapping.id != id)
+            continue;
+
+        QVariantMap info;
+        info["lowerValue"] = mapping.feedbackLower;
+        info["upperValue"] = mapping.feedbackUpper;
+        info["monitorValue"] = mapping.feedbackMonitor;
+        info["hasColorTable"] = false;
+        info["hasMIDIChannelTable"] = false;
+
+        Universe *universe = m_doc->inputOutputMap()->universe(mapping.universe);
+        InputPatch *patch = universe ? universe->inputPatch() : nullptr;
+        QLCInputProfile *profile = patch ? patch->profile() : nullptr;
+        if (!profile)
+            return info;
+
+        if (profile->hasColorTable())
+        {
+            info["hasColorTable"] = true;
+            QVariantList colors;
+            const auto colorTable = profile->colorTable();
+            for (auto it = colorTable.cbegin(); it != colorTable.cend(); ++it)
+            {
+                QVariantMap color;
+                color["index"] = it.key();
+                color["name"] = it.value().first;
+                color["color"] = it.value().second.name();
+                colors.append(color);
+                if (it.key() == mapping.feedbackLower) info["lowerColor"] = it.value().second.name();
+                if (it.key() == mapping.feedbackUpper) info["upperColor"] = it.value().second.name();
+                if (it.key() == mapping.feedbackMonitor) info["monitorColor"] = it.value().second.name();
+            }
+            info["colorTable"] = colors;
+        }
+
+        if (profile->type() == QLCInputProfile::MIDI && profile->hasMidiChannelTable())
+        {
+            info["hasMIDIChannelTable"] = true;
+            QVariantList channels;
+            channels.append(tr("From plugin settings"));
+            const auto midiChannelTable = profile->midiChannelTable();
+            for (auto it = midiChannelTable.cbegin(); it != midiChannelTable.cend(); ++it)
+                channels.append(it.value());
+            info["midiChannelTable"] = channels;
+            if (mapping.feedbackLowerParams.isValid()) info["lowerChannel"] = mapping.feedbackLowerParams.toInt() + 1;
+            if (mapping.feedbackUpperParams.isValid()) info["upperChannel"] = mapping.feedbackUpperParams.toInt() + 1;
+            if (mapping.feedbackMonitorParams.isValid()) info["monitorChannel"] = mapping.feedbackMonitorParams.toInt() + 1;
+        }
+        return info;
+    }
+    return QVariant();
+}
+
+bool LiveControlManager::updateMappingFeedbackValues(int id, quint8 lower, quint8 upper, quint8 monitor)
+{
+    for (Mapping &mapping : m_mappings)
+    {
+        if (mapping.id != id)
+            continue;
+        mapping.feedbackLower = lower;
+        mapping.feedbackUpper = upper;
+        mapping.feedbackMonitor = monitor;
+        m_doc->setModified();
+        emit mappingsChanged();
+        sendFeedback(mapping, lower, QLCInputFeedback::LowerValue);
+        return true;
+    }
+    return false;
+}
+
+bool LiveControlManager::updateMappingFeedbackExtraParams(int id, int lower, int upper, int monitor)
+{
+    for (Mapping &mapping : m_mappings)
+    {
+        if (mapping.id != id)
+            continue;
+        mapping.feedbackLowerParams = lower - 1;
+        mapping.feedbackUpperParams = upper - 1;
+        mapping.feedbackMonitorParams = monitor - 1;
+        m_doc->setModified();
+        emit mappingsChanged();
+        sendFeedback(mapping, mapping.feedbackLower, QLCInputFeedback::LowerValue);
+        return true;
+    }
+    return false;
+}
+
 void LiveControlManager::removeMapping(int id)
 {
     for (int i = 0; i < m_mappings.count(); ++i)
     {
         if (m_mappings.at(i).id != id)
             continue;
+        if (isButtonTarget(m_mappings[i].target))
+            sendFeedback(m_mappings[i], 0, QLCInputFeedback::LowerValue);
         if (m_mappings[i].source)
             m_mappings[i].source->setWorkingMode(QLCInputSource::Absolute);
         m_mappings.removeAt(i);
@@ -219,8 +365,12 @@ void LiveControlManager::clearMappings()
     if (m_mappings.isEmpty())
         return;
     for (Mapping &mapping : m_mappings)
+    {
+        if (isButtonTarget(mapping.target))
+            sendFeedback(mapping, 0, QLCInputFeedback::LowerValue);
         if (mapping.source)
             mapping.source->setWorkingMode(QLCInputSource::Absolute);
+    }
     m_mappings.clear();
     m_doc->setModified();
     emit mappingsChanged();
@@ -230,8 +380,12 @@ void LiveControlManager::reset()
 {
     cancelLearn();
     for (Mapping &mapping : m_mappings)
+    {
+        if (isButtonTarget(mapping.target))
+            sendFeedback(mapping, 0, QLCInputFeedback::LowerValue);
         if (mapping.source)
             mapping.source->setWorkingMode(QLCInputSource::Absolute);
+    }
     m_mappings.clear();
     m_nextId = 1;
     emit mappingsChanged();
@@ -278,8 +432,11 @@ void LiveControlManager::slotInputValueChanged(quint32 universe, quint32 channel
             continue;
         if (mapping.source)
             mapping.source->updateInputValue(value);
-        else
-            dispatch(mapping, value);
+        else if (dispatch(mapping, value))
+            sendFeedback(mapping, value, isButtonTarget(mapping.target)
+                         ? QLCInputFeedback::UpperValue : QLCInputFeedback::Undefinded);
+        else if (isButtonTarget(mapping.target) && value == 0)
+            sendFeedback(mapping, value, QLCInputFeedback::LowerValue);
     }
 }
 
@@ -290,17 +447,20 @@ void LiveControlManager::slotRelativeValueChanged(quint32 universe, quint32 chan
     {
         if (mapping.universe == universe && mapping.channel == channel && mapping.source.data() == source)
         {
-            dispatch(mapping, value, true);
+            if (dispatch(mapping, value, true))
+                sendFeedback(mapping, value, isButtonTarget(mapping.target)
+                             ? QLCInputFeedback::UpperValue : QLCInputFeedback::Undefinded);
+            else if (isButtonTarget(mapping.target) && value == 0)
+                sendFeedback(mapping, value, QLCInputFeedback::LowerValue);
             mapping.source->updateOuputValue(value);
             break;
         }
     }
 }
 
-void LiveControlManager::dispatch(Mapping &mapping, uchar value, bool relative)
+bool LiveControlManager::dispatch(Mapping &mapping, uchar value, bool relative)
 {
-    const bool button = mapping.target == QStringLiteral("position-center")
-            || mapping.target == QStringLiteral("highlight") || mapping.target == QStringLiteral("preset");
+    const bool button = isButtonTarget(mapping.target);
     if (button)
     {
         const bool pressed = value > 0;
@@ -308,10 +468,10 @@ void LiveControlManager::dispatch(Mapping &mapping, uchar value, bool relative)
         mapping.hasValue = true;
         mapping.lastValue = value;
         if (!pressed || wasPressed)
-            return;
+            return false;
         m_contextManager->applyLiveControl(mapping.target, value, false, mapping.preset);
         emit controlValueChanged(mapping.target, value, mapping.preset);
-        return;
+        return true;
     }
 
     if (!relative && !mapping.caught)
@@ -324,7 +484,7 @@ void LiveControlManager::dispatch(Mapping &mapping, uchar value, bool relative)
             mapping.hasValue = true;
             mapping.lastValue = value;
             if (qRound(current) != value)
-                return;
+                return false;
             mapping.caught = true;
         }
         else if ((mapping.lastValue <= current && value >= current)
@@ -333,13 +493,36 @@ void LiveControlManager::dispatch(Mapping &mapping, uchar value, bool relative)
         else
         {
             mapping.lastValue = value;
-            return;
+            return false;
         }
     }
     mapping.hasValue = true;
     mapping.lastValue = value;
     m_contextManager->applyLiveControl(mapping.target, value, relative, mapping.preset);
     emit controlValueChanged(mapping.target, value, mapping.preset);
+    return true;
+}
+
+void LiveControlManager::sendFeedback(Mapping &mapping, int value, QLCInputFeedback::FeedbackType type)
+{
+    QVariant params = mapping.feedbackUpperParams;
+    if (type == QLCInputFeedback::LowerValue)
+    {
+        value = mapping.feedbackLower;
+        params = mapping.feedbackLowerParams;
+    }
+    else if (type == QLCInputFeedback::UpperValue)
+    {
+        value = mapping.feedbackUpper;
+        params = mapping.feedbackUpperParams;
+    }
+    else if (type == QLCInputFeedback::MonitorValue)
+    {
+        value = mapping.feedbackMonitor;
+        params = mapping.feedbackMonitorParams;
+    }
+    m_doc->inputOutputMap()->sendFeedBack(mapping.universe, mapping.channel,
+                                          uchar(qBound(0, value, 255)), params);
 }
 
 void LiveControlManager::slotSelectionChanged()
@@ -348,12 +531,16 @@ void LiveControlManager::slotSelectionChanged()
     {
         mapping.caught = false;
         mapping.hasValue = false;
+        const qreal current = m_contextManager->liveControlValue(mapping.target);
         if (mapping.source)
         {
-            qreal current = m_contextManager->liveControlValue(mapping.target);
             if (current >= 0)
                 mapping.source->updateOuputValue(uchar(qBound(0, qRound(current), 255)));
         }
+        if (current >= 0)
+            sendFeedback(mapping, qRound(current));
+        else if (isButtonTarget(mapping.target))
+            sendFeedback(mapping, mapping.feedbackLower, QLCInputFeedback::LowerValue);
     }
     emit mappingsChanged();
 }
@@ -382,6 +569,18 @@ bool LiveControlManager::saveXML(QXmlStreamWriter *writer) const
         writer->writeAttribute(QStringLiteral("Target"), mapping.target);
         writer->writeAttribute(QStringLiteral("Universe"), QString::number(mapping.universe));
         writer->writeAttribute(QStringLiteral("Channel"), QString::number(mapping.channel));
+        if (mapping.feedbackLower != 0)
+            writer->writeAttribute(QStringLiteral("LowerValue"), QString::number(mapping.feedbackLower));
+        if (mapping.feedbackUpper != UCHAR_MAX)
+            writer->writeAttribute(QStringLiteral("UpperValue"), QString::number(mapping.feedbackUpper));
+        if (mapping.feedbackMonitor != UCHAR_MAX)
+            writer->writeAttribute(QStringLiteral("MonitorValue"), QString::number(mapping.feedbackMonitor));
+        if (mapping.feedbackLowerParams.toInt() != -1)
+            writer->writeAttribute(QStringLiteral("LowerParams"), mapping.feedbackLowerParams.toString());
+        if (mapping.feedbackUpperParams.toInt() != -1)
+            writer->writeAttribute(QStringLiteral("UpperParams"), mapping.feedbackUpperParams.toString());
+        if (mapping.feedbackMonitorParams.toInt() != -1)
+            writer->writeAttribute(QStringLiteral("MonitorParams"), mapping.feedbackMonitorParams.toString());
         for (auto it = mapping.preset.cbegin(); it != mapping.preset.cend(); ++it)
             writer->writeTextElement(it.key(), it.value().toString());
         writer->writeEndElement();
@@ -426,6 +625,18 @@ bool LiveControlManager::loadXML(QXmlStreamReader &reader)
             mapping.universe = universe;
             mapping.channel = channel;
             mapping.preset = preset;
+            if (attrs.hasAttribute(QStringLiteral("LowerValue")))
+                mapping.feedbackLower = uchar(attrs.value(QStringLiteral("LowerValue")).toUInt());
+            if (attrs.hasAttribute(QStringLiteral("UpperValue")))
+                mapping.feedbackUpper = uchar(attrs.value(QStringLiteral("UpperValue")).toUInt());
+            if (attrs.hasAttribute(QStringLiteral("MonitorValue")))
+                mapping.feedbackMonitor = uchar(attrs.value(QStringLiteral("MonitorValue")).toUInt());
+            if (attrs.hasAttribute(QStringLiteral("LowerParams")))
+                mapping.feedbackLowerParams = attrs.value(QStringLiteral("LowerParams")).toInt();
+            if (attrs.hasAttribute(QStringLiteral("UpperParams")))
+                mapping.feedbackUpperParams = attrs.value(QStringLiteral("UpperParams")).toInt();
+            if (attrs.hasAttribute(QStringLiteral("MonitorParams")))
+                mapping.feedbackMonitorParams = attrs.value(QStringLiteral("MonitorParams")).toInt();
             configureSource(mapping);
             m_mappings.append(mapping);
         }
